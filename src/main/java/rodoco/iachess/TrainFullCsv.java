@@ -160,9 +160,6 @@ public class TrainFullCsv {
 
 				System.out.println(current++  + "/" + size);
 				
-//				if (current == 10)
-//					break;
-
 				String[] columns = line.split(",");
 				if (columns.length < 13)
 					continue;

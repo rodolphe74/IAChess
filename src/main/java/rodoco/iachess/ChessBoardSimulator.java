@@ -2,10 +2,16 @@ package rodoco.iachess;
 
 import java.util.Arrays;
 
+import io.github.wolfraam.chessgame.ChessGame;
+import io.github.wolfraam.chessgame.board.Side;
+import io.github.wolfraam.chessgame.notation.NotationType;
+
 public class ChessBoardSimulator {
 	private final char[][] board = new char[8][8];
 	private boolean isWhiteTurn = true;
-
+	private ChessGame chessGame = new ChessGame();
+	
+	
 	public ChessBoardSimulator() {
 		reset();
 	}
@@ -29,86 +35,54 @@ public class ChessBoardSimulator {
 	}
 
 	public void applyMove(String move) {
-		if (move == null || move.isEmpty())
-			return;
+        if (move == null || move.isBlank()) {
+            return;
+        }
 
-		// 1. Nettoyage des symboles de fin (+, #)
-		String cleanMove = move.replace("+", "")
-			.replace("#", "")
-			.trim();
+        try {
+            // 1. Application du coup SAN (gestion automatique du roque, promotions, prises, etc.)
+            chessGame.playMove(NotationType.SAN, move.trim());
 
-		// 2. GESTION DU ROQUE
-		if (cleanMove.equalsIgnoreCase("O-O") || cleanMove.equalsIgnoreCase("0-0")) {
-			applyCastling(true);
-			isWhiteTurn = !isWhiteTurn;
-			return;
-		} else if (cleanMove.equalsIgnoreCase("O-O-O") || cleanMove.equalsIgnoreCase("0-0-0")) {
-			applyCastling(false);
-			isWhiteTurn = !isWhiteTurn;
-			return;
-		}
+            // 2. Synchronisation de la matrice 2D à partir du FEN généré
+            syncMatrixFromFen(chessGame.getFen());
 
-		// 3. GESTION DE LA PROMOTION (ex: "b8=Q" -> promotionPiece = 'Q')
-		char promotionPiece = ' ';
-		if (cleanMove.contains("=")) {
-			int eqIdx = cleanMove.indexOf("=");
-			if (eqIdx + 1 < cleanMove.length()) {
-				char promotedChar = cleanMove.charAt(eqIdx + 1);
-				promotionPiece = isWhiteTurn ? Character.toUpperCase(promotedChar)
-						: Character.toLowerCase(promotedChar);
-			}
-			cleanMove = cleanMove.substring(0, eqIdx);
-		}
+            // 3. Mise à jour du trait
+            this.isWhiteTurn = chessGame.getSideToMove().equals(Side.WHITE);
+            
+            System.out.println(chessGame.getASCII());
 
-		// 4. IDENTIFICATION DE LA PIÈCE DE DÉPART
-		char piece = isWhiteTurn ? 'P' : 'p';
-		if (Character.isUpperCase(cleanMove.charAt(0))) {
-			piece = isWhiteTurn ? cleanMove.charAt(0) : Character.toLowerCase(cleanMove.charAt(0));
-			cleanMove = cleanMove.substring(1);
-		}
+        } catch (IllegalArgumentException e) {
+            // Le coup est invalide ou illégal dans la position actuelle
+            System.err.println("Coup illégal ou mal formé : " + move);
+        }
+    }
 
-		// Retrait du symbole de prise 'x'
-		cleanMove = cleanMove.replace("x", "");
+    /**
+     * Reconstruit la matrice char[8][8] à partir de la notation FEN
+     */
+    private void syncMatrixFromFen(String fen) {
+        String placement = fen.split(" ")[0];
+        int row = 0;
+        int col = 0;
 
-		// 5. CALCUL DE LA CASE DE DESTINATION ET DÉSAMBIGUÏSATATION
-		if (cleanMove.length() < 2) {
-			isWhiteTurn = !isWhiteTurn;
-			return;
-		}
+        for (int r = 0; r < 8; r++) {
+            for (int c = 0; c < 8; c++) {
+                this.board[r][c] = '.';
+            }
+        }
 
-		char colChar = cleanMove.charAt(cleanMove.length() - 2);
-		char rowChar = cleanMove.charAt(cleanMove.length() - 1);
-
-		int destCol = colChar - 'a';
-		int destRow = 8 - Character.getNumericValue(rowChar);
-
-		// Extraction de l'indicateur de désambiguïsation s'il existe (ex: 'b' dans
-		// "Nbd2")
-		Character disambigCol = null;
-		Character disambigRow = null;
-		if (cleanMove.length() > 2) {
-			char extra = cleanMove.charAt(0);
-			if (extra >= 'a' && extra <= 'h') {
-				disambigCol = extra;
-			} else if (extra >= '1' && extra <= '8') {
-				disambigRow = extra;
-			}
-		}
-
-		if (!isValid(destRow, destCol)) {
-			isWhiteTurn = !isWhiteTurn;
-			return;
-		}
-
-		// 6. DÉPLACEMENT ET PROMOTION SUR LE PLATEAU
-		int[] src = findSourcePiece(piece, destRow, destCol, disambigCol, disambigRow);
-		if (src != null) {
-			board[src[0]][src[1]] = '.';
-			board[destRow][destCol] = (promotionPiece != ' ') ? promotionPiece : piece;
-		}
-
-		isWhiteTurn = !isWhiteTurn;
-	}
+        for (char c : placement.toCharArray()) {
+            if (c == '/') {
+                row++;
+                col = 0;
+            } else if (Character.isDigit(c)) {
+                col += Character.getNumericValue(c);
+            } else {
+                this.board[row][col] = c;
+                col++;
+            }
+        }
+    }
 
 	private int[] findSourcePiece(char piece, int destRow, int destCol, Character disambigCol, Character disambigRow) {
 	    char pUpper = Character.toUpperCase(piece);
