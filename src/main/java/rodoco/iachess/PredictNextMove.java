@@ -31,7 +31,6 @@ public class PredictNextMove {
 		String predictedMove = moveIndexer.getMoveFromIndex(bestMoveIndex);
 		simulator.applyMove(predictedMove);
 		ChessBoardPanel.doChessBoard(simulator);
-		
 
 		System.out.println("Coup prédit par le réseau : " + predictedMove);
 	}
