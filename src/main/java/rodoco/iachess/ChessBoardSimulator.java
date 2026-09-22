@@ -1,7 +1,5 @@
 package rodoco.iachess;
 
-import java.util.Arrays;
-
 import io.github.wolfraam.chessgame.ChessGame;
 import io.github.wolfraam.chessgame.board.Side;
 import io.github.wolfraam.chessgame.notation.NotationType;
@@ -14,16 +12,21 @@ public class ChessBoardSimulator {
 	public ChessBoardSimulator() {
 		reset();
 	}
+	
+	public ChessBoardSimulator(String fen) {
+		reset(fen);
+	}
 
 	public void reset() {
-		board[0] = new char[] { 'r', 'n', 'b', 'q', 'k', 'b', 'n', 'r' };
-		Arrays.fill(board[1], 'p');
-		for (int i = 2; i < 6; i++)
-			Arrays.fill(board[i], '.');
-		Arrays.fill(board[6], 'P');
-		board[7] = new char[] { 'R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R' };
-		isWhiteTurn = true;
 		chessGame = new ChessGame();
+		syncMatrixFromFen(chessGame.getFen());
+		isWhiteTurn = (chessGame.getSideToMove() == Side.WHITE);
+	}
+	
+	public void reset(String fen) {
+		chessGame = new ChessGame(fen);
+		syncMatrixFromFen(fen);
+		isWhiteTurn = (chessGame.getSideToMove() == Side.WHITE);
 	}
 
 	public char[][] getBoard() {

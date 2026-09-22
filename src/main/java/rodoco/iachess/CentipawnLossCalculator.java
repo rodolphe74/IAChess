@@ -1,17 +1,42 @@
 package rodoco.iachess;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Set;
+
+import org.deeplearning4j.nn.graph.ComputationGraph;
+import org.deeplearning4j.util.ModelSerializer;
+import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.factory.Nd4j;
 
 import io.github.wolfraam.chessgame.ChessGame;
+import io.github.wolfraam.chessgame.move.Move;
+import io.github.wolfraam.chessgame.move.MoveHelper;
 import io.github.wolfraam.chessgame.notation.NotationType;
+import io.github.wolfraam.chessgame.result.ChessGameResultType;
 import net.andreinc.neatchess.client.UCI;
 import net.andreinc.neatchess.client.model.Analysis;
 
 public class CentipawnLossCalculator {
 
-	List<String> exercicesBlancs = new ArrayList<>(Arrays.asList("2r3k1/1p3ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
+	public static ComputationGraph model;
+	public static MoveIndexer moveIndexer;
+
+	static {
+		try {
+			model = ModelSerializer.restoreComputationGraph(new File("chess_resnet_model.zip"));
+			moveIndexer = MoveIndexer.loadFromFile(new File("move_indexer.ser"));
+		} catch (IOException | ClassNotFoundException e) {
+			e.printStackTrace();
+		}
+
+	}
+
+	public List<String> exercicesBlancs = new ArrayList<>(Arrays.asList("2r3k1/1p3ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
 			"r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
 			"r4rk1/ppp2ppp/2n5/1B1p4/3P2b1/2P2N2/P1P2PPP/R3R1K1 w - - 0 1",
 			"3r2k1/pp3ppp/8/8/8/3R4/PP3PPP/6K1 w - - 0 1",
@@ -35,7 +60,7 @@ public class CentipawnLossCalculator {
 			"r1bqk2r/ppp2ppp/2n5/2bpp3/4P3/3P1N2/PPP2PPP/RNBQKB1R w KQkq - 0 6"));
 
 	// ⚫ Liste des exercices pour les Noirs (Le trait est aux Noirs : "b")
-	List<String> exercicesNoirs = new ArrayList<>(Arrays.asList("3r2k1/5ppp/8/8/8/8/5PPP/3R2K1 b - - 0 1",
+	public List<String> exercicesNoirs = new ArrayList<>(Arrays.asList("3r2k1/5ppp/8/8/8/8/5PPP/3R2K1 b - - 0 1",
 			"rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR b KQkq - 1 3",
 			"r1bqk2r/ppp2ppp/2n5/3pp3/2B1P3/3P1N2/PPP2PPP/RN1QK2R b KQkq - 0 6",
 			"3r2k1/5ppp/8/8/8/3R4/5PPP/6K1 b - - 0 1",
@@ -75,6 +100,16 @@ public class CentipawnLossCalculator {
 			.getResult();
 		net.andreinc.neatchess.client.model.Move bestMove = analysis.getBestMove();
 
+		// Gestion du mat
+		if (bestMove == null) {
+			return -1000;
+		}
+
+		String lanBestMove = bestMove.getLan();
+		String lanWolframBestMove = lanBestMove.substring(0, 2) + "-" + lanBestMove.substring(2);
+
+		System.out.println("Coup prédit par stockfish: " + bestMove);
+
 		if (bestMove == null || bestMove.getStrength() == null) {
 			return 0;
 		}
@@ -97,23 +132,18 @@ public class CentipawnLossCalculator {
 	}
 
 	public int getCentipawnLoss(String fenBeforeMove, String playerMoveSan, int depth) {
-		// 1. Évaluation de la meilleure option AVANT le coup (du point de vue du
+
+		// Application du coup sur l'échiquier virtuel (wolfraam)
+		ChessGame chessGame = new ChessGame(fenBeforeMove);
+
+		// Évaluation de la meilleure option AVANT le coup (du point de vue du
 		// joueur)
 		int evalBefore = evaluateFen(fenBeforeMove, depth);
-
-		// 2. Application du coup sur l'échiquier virtuel (wolfraam)
-		ChessGame chessGame = new ChessGame(fenBeforeMove);
 
 		String targetSan = playerMoveSan.trim();
 		io.github.wolfraam.chessgame.move.Move matchedMove = null;
 
-		for (io.github.wolfraam.chessgame.move.Move m : chessGame.getLegalMoves()) {
-			String encodedSan = chessGame.getNotation(NotationType.SAN, m);
-			if (targetSan.equals(encodedSan)) {
-				matchedMove = m;
-				break;
-			}
-		}
+		matchedMove = createMoveFromSan(chessGame, targetSan, matchedMove);
 
 		if (matchedMove == null) {
 			throw new IllegalArgumentException("Coup illégal ou mal formé : " + targetSan);
@@ -132,10 +162,113 @@ public class CentipawnLossCalculator {
 		return Math.max(0, loss);
 	}
 
+	private io.github.wolfraam.chessgame.move.Move createMoveFromSan(ChessGame chessGame, String targetSan,
+			io.github.wolfraam.chessgame.move.Move matchedMove) {
+		for (io.github.wolfraam.chessgame.move.Move m : chessGame.getLegalMoves()) {
+			String encodedSan = chessGame.getNotation(NotationType.SAN, m);
+			if (targetSan.equals(encodedSan)) {
+				matchedMove = m;
+				break;
+			}
+		}
+		return matchedMove;
+	}
+
 	public void stopEngine() {
 		if (this.uci != null) {
 			this.uci.close();
 		}
+	}
+
+	public String predictMove(String fen) {
+		ChessGame chessGame = new ChessGame(fen);
+		Set<Move> legalMoves = chessGame.getLegalMoves();
+
+		// S'il n'y a aucun coup légal (mat ou pat), la partie est terminée
+		if (legalMoves.isEmpty()) {
+			return null;
+		}
+
+		// Passage dans le réseau de neurones
+		ChessBoardSimulator simulator = new ChessBoardSimulator(fen);
+		INDArray inputTensor = ChessEncoder.boardToINDArray(simulator.getBoard(), simulator.isWhiteTurn());
+		INDArray[] output = model.output(inputTensor);
+
+		// On travaille idéalement sur les logits avant Softmax, sinon sur le vecteur de
+		// probabilités
+		INDArray probabilities = output[0].dup(); // Copie pour ne pas altérer l'output du modèle
+
+		// Création du masque d'illégalité
+		// On initialise un tableau où 0 = légal, et -Infinity = illégal
+		int numPossibleMoves = (int) probabilities.length();
+		boolean[] legalMask = new boolean[numPossibleMoves];
+
+		for (Move move : legalMoves) {
+			try {
+				String sanMove = chessGame.getNotation(NotationType.SAN, move);
+				int moveIndex = moveIndexer.getOrCreateIndex(sanMove); // Méthode inverse de getMoveFromIndex
+				if (moveIndex >= 0 && moveIndex < numPossibleMoves) {
+					legalMask[moveIndex] = true;
+				}
+			} catch (NoSuchElementException e) {
+				System.err.println("FEN illégale détectée, impossible de calculer le SAN : " + fen);
+				return null;
+			}
+		}
+
+		// Masquage des coups illégaux
+		for (int i = 0; i < numPossibleMoves; i++) {
+			if (!legalMask[i]) {
+				// On met la probabilité à une valeur extrêmement basse
+				// pour empêcher argMax de la sélectionner
+				probabilities.putScalar(new int[] { 0, i }, -1e9);
+			}
+		}
+
+		// Extraction du meilleur coup PARMI LES COUPS LÉGAUX
+		int bestLegalMoveIndex = Nd4j.argMax(probabilities, 1)
+			.getInt(0);
+		String predictedMove = moveIndexer.getMoveFromIndex(bestLegalMoveIndex);
+
+		// Fallback de sécurité extrême (si aucun index valide n'a été trouvé par le
+		// moveIndexer)
+		if (predictedMove == null || createMoveFromSan(chessGame, predictedMove, null) == null) {
+			Move defaultMove = ((Move) chessGame.getLegalMoves()
+				.toArray()[0]);
+			return chessGame.getNotation(NotationType.SAN, defaultMove);
+		}
+
+		return predictedMove;
+	}
+
+	public int calculateLoss(String fenInitiale) {
+		// Le coup Blunder joué par le Blanc au format standard SAN
+		String coupDuNeurone = predictMove(fenInitiale);
+		System.out.println("Coup du réseau de neurone:" + coupDuNeurone);
+
+		if (coupDuNeurone == null) {
+			// L'adversaire ne peut pas jouer
+			return 0;
+		}
+
+		System.out.println("Calcul en cours...");
+		int centipawnLoss = getCentipawnLoss(fenInitiale, coupDuNeurone, 14);
+
+		System.out.println("\n--- RÉSULTAT ---");
+		System.out.println("❌ Perte en centipawns sur ce coup : " + centipawnLoss + " CPL");
+
+		if (centipawnLoss == 0)
+			System.out.println("=> Coup parfait (Top Engine Move).");
+		else if (centipawnLoss <= 10)
+			System.out.println("=> Excellent coup.");
+		else if (centipawnLoss <= 30)
+			System.out.println("=> Inexactitude (Inaccuracy).");
+		else if (centipawnLoss <= 70)
+			System.out.println("=> Erreur (Mistake).");
+		else
+			System.out.println("=> Gaffe majeure (Blunder).");
+
+		return centipawnLoss;
 	}
 
 	public static void main(String[] args) {
@@ -144,31 +277,13 @@ public class CentipawnLossCalculator {
 			String stockfishPath = "bin/stockfish-windows-x86-64-universal.exe";
 			calculator.startEngine(stockfishPath);
 
-			System.out.println("--- ANALYSE FIABLE AVEC CHESS-GAME ---");
+			int sum = 0;
+			for (String w : calculator.exercicesNoirs) {
+				System.out.println("PARTIE:" + w);
+				sum += calculator.calculateLoss(w);
+			}
 
-			// Position initiale (Trait aux Blancs)
-			String fenInitiale = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3";
-
-			// Le coup Blunder joué par le Blanc au format standard SAN
-			String coupJoueurSAN = "Nxe5";
-//			String coupJoueurSAN = "Bb5";
-
-			System.out.println("Calcul en cours...");
-			int centipawnLoss = calculator.getCentipawnLoss(fenInitiale, coupJoueurSAN, 14);
-
-			System.out.println("\n--- RÉSULTAT ---");
-			System.out.println("❌ Perte en centipawns sur ce coup : " + centipawnLoss + " CPL");
-
-			if (centipawnLoss == 0)
-				System.out.println("=> Coup parfait (Top Engine Move).");
-			else if (centipawnLoss <= 10)
-				System.out.println("=> Excellent coup.");
-			else if (centipawnLoss <= 30)
-				System.out.println("=> Inexactitude (Inaccuracy).");
-			else if (centipawnLoss <= 70)
-				System.out.println("=> Erreur (Mistake).");
-			else
-				System.out.println("=> Gaffe majeure (Blunder).");
+			System.out.println("Ecart global:" + sum);
 
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -177,4 +292,5 @@ public class CentipawnLossCalculator {
 			System.out.println("Moteur arrêté.");
 		}
 	}
+
 }
