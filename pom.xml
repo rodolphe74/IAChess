@@ -41,18 +41,10 @@
 			<version>1.0.0-M2.1</version>
 		</dependency>
 
-
-		<!-- BACKEND CUDA GPU -->
-		<!--		<dependency>-->
-		<!--		    <groupId>org.nd4j</groupId>-->
-		<!--		    <artifactId>nd4j-cuda-11.6-platform</artifactId>-->
-		<!--		    <version>1.0.0-M2.1</version>-->
-		<!--		</dependency>-->
-
 		<dependency>
 			<groupId>org.deeplearning4j</groupId>
 			<artifactId>deeplearning4j-ui</artifactId>
-			<version>1.0.0-M2.1</version> <!-- Adapte selon ta version de DL4J -->
+			<version>1.0.0-M2.1</version>
 		</dependency>
 
 		<dependency>

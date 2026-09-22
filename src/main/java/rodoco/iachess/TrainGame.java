@@ -49,7 +49,7 @@ public class TrainGame {
             }
 
             // C. Mettre à jour le plateau pour le coup suivant
-            simulator.applyMove(move);
+            simulator.applySANMove(move);
         }
 
         // 4. Regroupement des exemples en un seul DataSet (Batch)

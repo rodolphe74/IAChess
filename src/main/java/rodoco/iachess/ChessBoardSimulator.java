@@ -2,6 +2,7 @@ package rodoco.iachess;
 
 import io.github.wolfraam.chessgame.ChessGame;
 import io.github.wolfraam.chessgame.board.Side;
+import io.github.wolfraam.chessgame.move.Move;
 import io.github.wolfraam.chessgame.notation.NotationType;
 
 public class ChessBoardSimulator {
@@ -37,7 +38,7 @@ public class ChessBoardSimulator {
 		return isWhiteTurn;
 	}
 
-	public void applyMove(String move) {
+	public void applySANMove(String move) {
 		if (move == null || move.isBlank()) {
 			return;
 		}
@@ -61,6 +62,12 @@ public class ChessBoardSimulator {
 			// Le coup est invalide ou illégal dans la position actuelle
 			System.err.println("Coup illégal ou mal formé : " + move);
 		}
+	}
+	
+	public void applyUCIMove(String move) {
+		Move m  = chessGame.getMove(NotationType.UCI, move);
+		String encodedSan = chessGame.getNotation(NotationType.SAN, m);
+		applySANMove(encodedSan);
 	}
 
 	/**
