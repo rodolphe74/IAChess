@@ -206,7 +206,7 @@ public class TrainFullCsv {
 					}
 
 					// Avancer le plateau pour le coup suivant
-					simulator.applyMove(move);
+					simulator.applySANMove(move);
 				}
 			}
 
