@@ -215,6 +215,8 @@ public class ChessBoardPanel extends JPanel {
 					if (isValidMove(fromRow, fromCol, toR, toC)) {
 						String moveStr = squareToString(fromRow, fromCol) + squareToString(toR, toC);
 						simulator.applyUCIMove(moveStr);
+						List<String> nextValidMoves = simulator.getMoves();
+						setValidMoves(nextValidMoves);
 					}
 				}
 
@@ -241,13 +243,7 @@ public class ChessBoardPanel extends JPanel {
 
 	public static void main(String[] args) {
 		ChessBoardSimulator sim = new ChessBoardSimulator();
-
-		// Exemple de liste de coups autorisés au format coordonnées
-		List<String> validMoves = new ArrayList<>();
-		validMoves.add("e2e4");
-		validMoves.add("d2d4");
-		validMoves.add("g1f3");
-
+		List<String> validMoves = sim.getMoves();
 		doChessBoard(sim, validMoves);
 	}
 }

@@ -1,5 +1,9 @@
 package rodoco.iachess;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+
 import io.github.wolfraam.chessgame.ChessGame;
 import io.github.wolfraam.chessgame.board.Side;
 import io.github.wolfraam.chessgame.move.Move;
@@ -95,6 +99,15 @@ public class ChessBoardSimulator {
 				col++;
 			}
 		}
+	}
+	
+	public List<String> getMoves() {
+		Set<Move> moves = chessGame.getLegalMoves();
+		ArrayList<String> legalMoves = new ArrayList<String>();
+		for (Move m : moves) {
+			legalMoves.add(chessGame.getNotation(NotationType.UCI, m));
+		}
+		return legalMoves;
 	}
 
 	public static void printBoard(char[][] board) {
