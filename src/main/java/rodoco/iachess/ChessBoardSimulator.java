@@ -1,8 +1,16 @@
 package rodoco.iachess;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Set;
+
+import org.deeplearning4j.nn.graph.ComputationGraph;
+import org.deeplearning4j.util.ModelSerializer;
+import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.factory.Nd4j;
 
 import io.github.wolfraam.chessgame.ChessGame;
 import io.github.wolfraam.chessgame.board.Side;
@@ -14,6 +22,21 @@ public class ChessBoardSimulator {
 	private boolean isWhiteTurn = true;
 	private ChessGame chessGame = new ChessGame();
 
+	
+	public static ComputationGraph model;
+	public static MoveIndexer moveIndexer;
+
+	static {
+		try {
+			model = ModelSerializer.restoreComputationGraph(new File("chess_resnet_model.zip"));
+			moveIndexer = MoveIndexer.loadFromFile(new File("move_indexer.ser"));
+		} catch (IOException | ClassNotFoundException e) {
+			e.printStackTrace();
+		}
+
+	}
+	
+	
 	public ChessBoardSimulator() {
 		reset();
 	}
@@ -109,6 +132,82 @@ public class ChessBoardSimulator {
 		}
 		return legalMoves;
 	}
+	
+	
+	
+	public String predictMove() {
+		Set<Move> legalMoves = chessGame.getLegalMoves();
+
+		// S'il n'y a aucun coup légal (mat ou pat), la partie est terminée
+		if (legalMoves.isEmpty()) {
+			return null;
+		}
+
+		// Passage dans le réseau de neurones
+		INDArray inputTensor = ChessEncoder.boardToINDArray(getBoard(), isWhiteTurn());
+		INDArray[] output = model.output(inputTensor);
+
+		// On travaille idéalement sur les logits avant Softmax, sinon sur le vecteur de
+		// probabilités
+		INDArray probabilities = output[0].dup(); // Copie pour ne pas altérer l'output du modèle
+
+		// Création du masque d'illégalité
+		// On initialise un tableau où 0 = légal, et -Infinity = illégal
+		int numPossibleMoves = (int) probabilities.length();
+		boolean[] legalMask = new boolean[numPossibleMoves];
+
+		for (Move move : legalMoves) {
+			try {
+				String sanMove = chessGame.getNotation(NotationType.SAN, move);
+				int moveIndex = moveIndexer.getOrCreateIndex(sanMove); // Méthode inverse de getMoveFromIndex
+				if (moveIndex >= 0 && moveIndex < numPossibleMoves) {
+					legalMask[moveIndex] = true;
+				}
+			} catch (NoSuchElementException e) {
+				System.err.println("FEN illégale détectée, impossible de calculer le SAN : " + chessGame.getFen());
+				return null;
+			}
+		}
+
+		// Masquage des coups illégaux
+		for (int i = 0; i < numPossibleMoves; i++) {
+			if (!legalMask[i]) {
+				// On met la probabilité à une valeur extrêmement basse
+				// pour empêcher argMax de la sélectionner
+				probabilities.putScalar(new int[] { 0, i }, -1e9);
+			}
+		}
+
+		// Extraction du meilleur coup PARMI LES COUPS LÉGAUX
+		int bestLegalMoveIndex = Nd4j.argMax(probabilities, 1)
+			.getInt(0);
+		String predictedMove = moveIndexer.getMoveFromIndex(bestLegalMoveIndex);
+
+		// Fallback de sécurité extrême (si aucun index valide n'a été trouvé par le
+		// moveIndexer)
+		if (predictedMove == null || createMoveFromSan(chessGame, predictedMove, null) == null) {
+			Move defaultMove = ((Move) chessGame.getLegalMoves()
+				.toArray()[0]);
+			return chessGame.getNotation(NotationType.SAN, defaultMove);
+		}
+
+		return predictedMove;
+	}
+	
+	
+	private io.github.wolfraam.chessgame.move.Move createMoveFromSan(ChessGame chessGame, String targetSan,
+			io.github.wolfraam.chessgame.move.Move matchedMove) {
+		for (io.github.wolfraam.chessgame.move.Move m : chessGame.getLegalMoves()) {
+			String encodedSan = chessGame.getNotation(NotationType.SAN, m);
+			if (targetSan.equals(encodedSan)) {
+				matchedMove = m;
+				break;
+			}
+		}
+		return matchedMove;
+	}
+	
+	
 
 	public static void printBoard(char[][] board) {
 		System.out.println("    a b c d e f g h");

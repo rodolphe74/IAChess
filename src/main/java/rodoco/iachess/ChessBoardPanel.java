@@ -212,11 +212,25 @@ public class ChessBoardPanel extends JPanel {
 				int toR = (e.getY() - marginSize) / tileSize;
 
 				if (toR >= 0 && toR < 8 && toC >= 0 && toC < 8) {
-					if (isValidMove(fromRow, fromCol, toR, toC)) {
+					
+					
+					
+					if (simulator.isWhiteTurn() && isValidMove(fromRow, fromCol, toR, toC)) {
+						System.out.println("1 IsWhiteTurn:" + simulator.isWhiteTurn());
+						// Validation du coup blanc
 						String moveStr = squareToString(fromRow, fromCol) + squareToString(toR, toC);
 						simulator.applyUCIMove(moveStr);
-						List<String> nextValidMoves = simulator.getMoves();
-						setValidMoves(nextValidMoves);
+						List<String> nextBlackValidMoves = simulator.getMoves();
+						setValidMoves(nextBlackValidMoves);
+						System.out.println("2 IsWhiteTurn:" + simulator.isWhiteTurn());
+						
+						// Prédiction du coup noir
+						String prediction = simulator.predictMove();
+						System.out.println(prediction);
+						simulator.applySANMove(prediction);
+						System.out.println("3 IsWhiteTurn:" + simulator.isWhiteTurn());
+						List<String> nextWhiteMoves = simulator.getMoves();
+						setValidMoves(nextWhiteMoves);
 					}
 				}
 
