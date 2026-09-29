@@ -225,7 +225,7 @@ public class ChessBoardPanel extends JPanel {
 						System.out.println("2 IsWhiteTurn:" + simulator.isWhiteTurn());
 						
 						// Prédiction du coup noir
-						String prediction = simulator.predictMove();
+						String prediction = simulator.predictMoveOnnx();
 						System.out.println(prediction);
 						simulator.applySANMove(prediction);
 						System.out.println("3 IsWhiteTurn:" + simulator.isWhiteTurn());

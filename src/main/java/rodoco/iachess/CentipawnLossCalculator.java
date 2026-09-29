@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
@@ -13,11 +14,13 @@ import org.deeplearning4j.util.ModelSerializer;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.factory.Nd4j;
 
+import ai.onnxruntime.OnnxTensor;
+import ai.onnxruntime.OrtEnvironment;
+import ai.onnxruntime.OrtException;
+import ai.onnxruntime.OrtSession;
 import io.github.wolfraam.chessgame.ChessGame;
 import io.github.wolfraam.chessgame.move.Move;
-import io.github.wolfraam.chessgame.move.MoveHelper;
 import io.github.wolfraam.chessgame.notation.NotationType;
-import io.github.wolfraam.chessgame.result.ChessGameResultType;
 import net.andreinc.neatchess.client.UCI;
 import net.andreinc.neatchess.client.model.Analysis;
 
@@ -25,14 +28,29 @@ public class CentipawnLossCalculator {
 
 	public static ComputationGraph model;
 	public static MoveIndexer moveIndexer;
+	
+	public static OrtEnvironment onnxEnv;
+	public static OrtSession onnxSession;
+	public static MoveIndexer moveIndexerOnnx;
+	
 
 	static {
 		try {
+			// Modele ND4J
 			model = ModelSerializer.restoreComputationGraph(new File("chess_resnet_model.zip"));
 			moveIndexer = MoveIndexer.loadFromFile(new File("move_indexer.ser"));
-		} catch (IOException | ClassNotFoundException e) {
+
+			// MOdele Onnx
+			onnxEnv = OrtEnvironment.getEnvironment();
+			onnxSession = onnxEnv.createSession("pytorch-trainer/chess_resnet_model.onnx",
+					new OrtSession.SessionOptions());
+
+			// Chargement du dictionnaire des coups (mis à jour au format JSON)
+			moveIndexerOnnx = MoveIndexer.loadFromJson(new File("pytorch-trainer/move_indexer.json"));
+
+		} catch (IOException | ClassNotFoundException | OrtException e) {
 			e.printStackTrace();
-		}
+		} 
 
 	}
 
@@ -241,9 +259,85 @@ public class CentipawnLossCalculator {
 		return predictedMove;
 	}
 
+	
+	public String predictMoveOnnx(String fen) {
+		ChessGame chessGame = new ChessGame(fen);
+		Set<Move> legalMoves = chessGame.getLegalMoves();
+
+		// S'il n'y a aucun coup légal (mat ou pat), la partie est terminée
+		if (legalMoves.isEmpty()) {
+			return null;
+		}
+
+		// 1. Encodage du plateau au format float[1][14][8][8]
+		ChessBoardSimulator simulator = new ChessBoardSimulator(fen);
+		float[][][][] boardData = ChessEncoder.boardToFloatArray(simulator.getBoard(), simulator.isWhiteTurn());
+
+		float[] probabilities;
+
+		// 2. Inférence ONNX Runtime
+		try (OnnxTensor inputTensor = OnnxTensor.createTensor(onnxEnv, boardData);
+				OrtSession.Result results = onnxSession.run(Collections.singletonMap("board_input", inputTensor))) {
+			float[][] logits = (float[][]) results.get("policy_output")
+				.get()
+				.getValue();
+			probabilities = logits[0].clone(); // Copie locale pour le masquage
+		} catch (OrtException e) {
+			e.printStackTrace();
+			return null;
+		}
+
+		// 3. Masquage des coups illégaux
+		int numPossibleMoves = probabilities.length;
+		boolean[] legalMask = new boolean[numPossibleMoves];
+
+		for (Move move : legalMoves) {
+			try {
+				String sanMove = chessGame.getNotation(NotationType.SAN, move);
+				int moveIndex = moveIndexerOnnx.getOrCreateIndex(sanMove);
+				if (moveIndex >= 0 && moveIndex < numPossibleMoves) {
+					legalMask[moveIndex] = true;
+				}
+			} catch (NoSuchElementException e) {
+				System.err.println("FEN illégale détectée, impossible de calculer le SAN : " + fen);
+				return null;
+			}
+		}
+
+		// On applique la pénalité sur le tableau float
+		for (int i = 0; i < numPossibleMoves; i++) {
+			if (!legalMask[i]) {
+				probabilities[i] = -1e9f;
+			}
+		}
+
+		// 4. ArgMax : Récupération du meilleur coup parmi les coups légaux
+		int bestLegalMoveIndex = 0;
+		float maxVal = probabilities[0];
+		for (int i = 1; i < numPossibleMoves; i++) {
+			if (probabilities[i] > maxVal) {
+				maxVal = probabilities[i];
+				bestLegalMoveIndex = i;
+			}
+		}
+
+		String predictedMove = moveIndexerOnnx.getMoveFromIndex(bestLegalMoveIndex);
+
+		// 5. Fallback de sécurité
+		if (predictedMove == null || createMoveFromSan(chessGame, predictedMove, null) == null) {
+			Move defaultMove = chessGame.getLegalMoves()
+				.iterator()
+				.next();
+			return chessGame.getNotation(NotationType.SAN, defaultMove);
+		}
+
+		return predictedMove;
+		
+	}
+	
 	public int calculateLoss(String fenInitiale) {
 		// Le coup Blunder joué par le Blanc au format standard SAN
-		String coupDuNeurone = predictMove(fenInitiale);
+		String coupDuNeurone = predictMoveOnnx(fenInitiale);
 		System.out.println("Coup du réseau de neurone:" + coupDuNeurone);
 
 		if (coupDuNeurone == null) {
@@ -278,7 +372,7 @@ public class CentipawnLossCalculator {
 			calculator.startEngine(stockfishPath);
 
 			int sum = 0;
-			for (String w : calculator.exercicesNoirs) {
+			for (String w : calculator.exercicesBlancs) {
 				System.out.println("PARTIE:" + w);
 				sum += calculator.calculateLoss(w);
 			}

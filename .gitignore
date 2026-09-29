@@ -28,3 +28,4 @@ replay_pid*
 .settings/
 move_indexer.ser
 chess_resnet_model.zip
+pytorch-trainer/pytorch-env/

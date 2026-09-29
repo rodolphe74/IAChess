@@ -36,6 +36,47 @@ public class ChessEncoder {
 		return tensor;
 	}
 
+	/**
+	 * Convertit une matrice de plateau 8x8 en un tableau float 4D [1][14][8][8]
+	 * pour l'inférence ONNX Runtime.
+	 */
+	public static float[][][][] boardToFloatArray(char[][] board, boolean isWhiteTurn) {
+		float[][][][] tensor = new float[1][14][8][8];
+
+		// 1. Encodage des pièces (Plans 0 à 11)
+		for (int r = 0; r < 8; r++) {
+			for (int c = 0; c < 8; c++) {
+				char piece = board[r][c];
+				if (piece == '.') {
+					continue;
+				}
+
+				int planeIndex = getPlaneIndex(piece);
+				if (planeIndex != -1) {
+					tensor[0][planeIndex][r][c] = 1.0f;
+				}
+			}
+		}
+
+		// 2. Plan 12 : Trait aux Blancs (1.0f)
+		if (isWhiteTurn) {
+			for (int r = 0; r < 8; r++) {
+				for (int c = 0; c < 8; c++) {
+					tensor[0][12][r][c] = 1.0f;
+				}
+			}
+		}
+
+		// 3. Plan 13 : Biais / Padding constant (1.0f)
+		for (int r = 0; r < 8; r++) {
+			for (int c = 0; c < 8; c++) {
+				tensor[0][13][r][c] = 1.0f;
+			}
+		}
+
+		return tensor;
+	}
+
 	private static int getPlaneIndex(char piece) {
 		switch (piece) {
 		case 'P':
