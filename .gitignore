@@ -31,3 +31,6 @@ chess_resnet_model.zip
 pytorch-trainer/pytorch-env/
 pytorch-trainer/runs/chess_resnet_experiment/
 pytorch-trainer/chess_resnet_model.pt
+pytorch-trainer/chess_resnet_model.onnx
+pytorch-trainer/chess_resnet_model.onnx.data
+pytorch-trainer/move_indexer.json
